@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "result_images",
+			"path": "."
+		},
+		{
+			"name": "AuraVision",
+			"path": "../../AuraVision"
+		}
+	],
+	"settings": {}
+}
