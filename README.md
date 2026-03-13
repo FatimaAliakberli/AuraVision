@@ -4,7 +4,12 @@
 
 AuraVision is a computer vision project designed to identify the **dominant age group within a crowd scene**. Rather than relying on facial recognition, the model learns to distinguish age groups through visual cues such as clothing style, accessories, body posture, and contextual belongings — making it more privacy-conscious and robust in real-world scenarios. The ultimate goal is to deploy AuraVision in settings such as public spaces, retail environments, or event venues where understanding the age composition of a crowd can inform decision-making.
 
----
+## Table of Contributions 
+
+| Team Member | Contribution |
+| :---  | :--- |
+| Fatima Alakbarli | Data Training |
+| Shahd Elaydy | Data Collection |
 
 ## Dataset
 
@@ -18,7 +23,6 @@ Images were collected **manually from [Pexels](https://www.pexels.com/)**, a fre
 
 The dataset consists of **117 images** in total across three classes, with **19 images** reserved as test data containing mixed age groups for inference.
 
----
 
 ## Project Structure
 
@@ -32,7 +36,7 @@ AuraVision/
 │   │   └── seniors/         # Training images — seniors
 │   └── test/                # Mixed test images (no subfolders)
 │
-├── result_images/                 # Output visualizations (auto-created)
+├── result_images/           # Output visualizations (auto-created)
 │
 ├── train_model.py           # Training script → produces age_classifier.pth
 ├── visualize_results.py     # Inference + visualization script
@@ -40,11 +44,10 @@ AuraVision/
 └── README.md
 ```
 
----
 
 ## Model Architecture
 
-AuraVision uses **transfer learning** on top of **EfficientNet-B0** pretrained on ImageNet. Given the small dataset size, training from scratch would lead to severe overfitting — instead, the early layers (which already encode general visual features like textures, edges, and shapes) are frozen, and only the final feature blocks and a custom classification head are fine-tuned.
+AuraVision uses **transfer learning** on top of **EfficientNet-B0** pretrained on ImageNet. Given the small dataset size, training from scratch would lead to severe overfitting; instead, the early layers (which already encode general visual features like textures, edges, and shapes) are frozen, and only the final feature blocks and a custom classification head are fine-tuned.
 
 ```
 EfficientNet-B0 (pretrained, partial freeze)
@@ -63,7 +66,6 @@ EfficientNet-B0 (pretrained, partial freeze)
 - AdamW optimizer with cosine annealing scheduler
 - 40 epochs, batch size 8
 
----
 
 ## Usage
 
@@ -99,7 +101,6 @@ Processes every image in `dataset/test/`, divides each into a **4×4 patch grid*
 
 Each saved image includes a **top banner** showing the majority class and patch vote counts, plus a **legend** in the corner. Example output filename: `pexels-example-1234_result.jpg`
 
----
 
 ## Limitations — Milestone 1
 
@@ -109,12 +110,11 @@ The following limitations have been identified and will be addressed before the 
 The model was trained on only 117 images, which is far below what is typically needed for robust generalization. For the final version, we plan to significantly expand the dataset across all three classes.
 
 **2. Narrow search diversity**
-Training data was sourced using specific queries (e.g. *business men*, *children at school*), meaning the model may struggle with age groups presented in different contexts — for example, a child riding a bicycle or an adult in casual clothing. We will broaden our data collection strategy to cover a wider range of real-world scenarios aligned with our deployment purpose.
+Training data was sourced using specific queries (e.g. *business men*, *children at school*), meaning the model may struggle with age groups presented in different contexts; for example, a child riding a bicycle or an adult in casual clothing. We will broaden our data collection strategy to cover a wider range of real-world scenarios aligned with our deployment purpose.
 
 **3. No quantitative evaluation metric**
 Due to the absence of ground truth labels for test images, model performance was assessed purely through visual inspection of the patch-colored outputs. For the final submission, we plan to either manually label the test set or explore alternative evaluation strategies to compute a concrete accuracy or error rate.
 
----
 
 ## Future Work
 
@@ -123,7 +123,6 @@ Due to the absence of ground truth labels for test images, model performance was
 - Experiment with larger backbones (EfficientNet-B3, ResNet50) as data grows
 - Explore sliding-window inference for higher spatial resolution in crowd scenes
 
----
 
 ## Acknowledgements
 
