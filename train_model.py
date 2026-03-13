@@ -1,26 +1,3 @@
-"""
-Age Group Majority Classifier
-==============================
-Trains a transfer learning model (EfficientNet-B0) on three classes:
-  - children
-  - adults
-  - seniors
-
-Then runs inference on test images and prints the predicted majority
-age group for each image, along with confidence scores.
-
-Expected folder structure:
-    dataset/
-        train/
-            children/   *.jpg / *.png ...
-            adults/     *.jpg / *.png ...
-            seniors/    *.jpg / *.png ...
-        test/           *.jpg / *.png ...  (mixed, no subfolders)
-
-Usage:
-    python age_group_classifier.py
-"""
-
 import os
 import copy
 import torch
@@ -31,25 +8,29 @@ from torchvision import datasets, transforms, models
 from PIL import Image
 import numpy as np
 
-# ─────────────────────────────────────────────
-# CONFIG  — adjust paths here
-# ─────────────────────────────────────────────
+# Step 1. Configurations & Settings
+
+# Paths of our dataset
 TRAIN_DIR   = "dataset/train"   # subfolders: children/, adults/, seniors/
-TEST_DIR    = "dataset/test"    # flat folder with mixed images
+TEST_DIR    = "dataset/test"    
 MODEL_SAVE  = "age_classifier.pth"
 
+# Training Hyperparameters
 NUM_EPOCHS      = 40
 BATCH_SIZE      = 8             # small because dataset is tiny
 LEARNING_RATE   = 1e-4
 IMAGE_SIZE      = 224
-NUM_CLASSES     = 3
+NUM_CLASSES     = 3             # children, adults, seniors
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-CLASS_NAMES = ["adults", "children", "seniors"]   # sorted alphabetically to match ImageFolder
+CLASS_NAMES = ["adults", "children", "seniors"]  
 
-# ─────────────────────────────────────────────
-# 1. DATA TRANSFORMS  (heavy augmentation for tiny dataset)
-# ─────────────────────────────────────────────
+
+# Step 2. Data Processing 
+
+# Training transforms:
+# these create slightly different versions of the same images
+# to help the model learn better from a small dataset, data augmentation 
 train_transforms = transforms.Compose([
     transforms.Resize((IMAGE_SIZE + 32, IMAGE_SIZE + 32)),
     transforms.RandomCrop(IMAGE_SIZE),
@@ -63,6 +44,7 @@ train_transforms = transforms.Compose([
                          [0.229, 0.224, 0.225]),
 ])
 
+# Transforms for validation: 
 val_transforms = transforms.Compose([
     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
     transforms.ToTensor(),
@@ -70,13 +52,9 @@ val_transforms = transforms.Compose([
                          [0.229, 0.224, 0.225]),
 ])
 
-# ─────────────────────────────────────────────
-# 2. DATASET  — ImageFolder auto-assigns labels from subfolder names
-# ─────────────────────────────────────────────
 def build_dataloaders(train_dir):
     full_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
 
-    # Update CLASS_NAMES to match what ImageFolder found (alphabetical)
     global CLASS_NAMES
     CLASS_NAMES = full_dataset.classes
     print(f"Classes detected: {CLASS_NAMES}")
@@ -90,14 +68,15 @@ def build_dataloaders(train_dir):
         generator=torch.Generator().manual_seed(42)
     )
 
-    # Apply lighter transforms to val split
+    # Apply lighter transforms for validation data
     val_set.dataset = copy.deepcopy(full_dataset)
     val_set.dataset.transform = val_transforms
 
-    # Weighted sampler to handle class imbalance
+    # Handle class imbalance by giving higher chance to underrepresented classes
     targets      = [full_dataset.targets[i] for i in train_set.indices]
     class_counts = np.bincount(targets)
     print(f"Train class distribution: { {CLASS_NAMES[i]: int(class_counts[i]) for i in range(len(CLASS_NAMES))} }")
+    
     weights      = 1.0 / class_counts
     sample_weights = [weights[t] for t in targets]
     sampler      = WeightedRandomSampler(sample_weights, len(sample_weights))
@@ -107,21 +86,23 @@ def build_dataloaders(train_dir):
 
     return train_loader, val_loader
 
-# ─────────────────────────────────────────────
-# 3. MODEL  — EfficientNet-B0 pretrained, fine-tune last layers
-# ─────────────────────────────────────────────
+
+# Step 3. The Model
 def build_model():
+    # Load a pretrained EfficientNet-B0 model
     model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
-    # Freeze all layers first
+    # Freeze all pretrained layers first: 
+    # We don't need to re-learn basic shapes and colors
     for param in model.parameters():
         param.requires_grad = False
 
-    # Unfreeze last 2 blocks of the feature extractor for fine-tuning
+    # Unfreeze the last part of the feature extractor:
+    # so the model can adapt better to this task  
     for param in model.features[6:].parameters():
         param.requires_grad = True
 
-    # Replace classifier head
+    # Replace the final classifier with a new one for 3 classes
     in_features = model.classifier[1].in_features
     model.classifier = nn.Sequential(
         nn.Dropout(p=0.4),
@@ -133,22 +114,26 @@ def build_model():
 
     return model.to(DEVICE)
 
-# ─────────────────────────────────────────────
-# 4. TRAINING LOOP
-# ─────────────────────────────────────────────
+# Step 4. Training the Model 
 def train_model(model, train_loader, val_loader):
+    # Loss function for multi-class classification
     criterion  = nn.CrossEntropyLoss()
+    
+    # Optimizer updates only the trainable parameters
     optimizer  = optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE, weight_decay=1e-4
     )
+    
+    # Learning rate schedular:
+    # Automatically slows down learning speed as we get closer to the best result
     scheduler  = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
     best_val_acc = 0.0
     best_weights = copy.deepcopy(model.state_dict())
 
     for epoch in range(NUM_EPOCHS):
-        # --- Train phase ---
+        # Training Phase:
         model.train()
         running_loss, correct, total = 0.0, 0, 0
         for inputs, labels in train_loader:
@@ -167,7 +152,7 @@ def train_model(model, train_loader, val_loader):
         train_loss = running_loss / total
         train_acc  = correct / total
 
-        # --- Val phase ---
+        # Validation Phase:
         model.eval()
         val_correct, val_total = 0, 0
         with torch.no_grad():
@@ -185,20 +170,20 @@ def train_model(model, train_loader, val_loader):
               f"Train Loss: {train_loss:.4f}  Train Acc: {train_acc:.2%}  "
               f"Val Acc: {val_acc:.2%}")
 
+        # Save the best model based on validation accuracy
         if val_acc >= best_val_acc:
             best_val_acc = val_acc
             best_weights = copy.deepcopy(model.state_dict())
 
-    print(f"\n✅ Best validation accuracy: {best_val_acc:.2%}")
+    print(f"\n Best validation accuracy: {best_val_acc:.2%}")
     model.load_state_dict(best_weights)
     torch.save(model.state_dict(), MODEL_SAVE)
-    print(f"✅ Model saved to: {MODEL_SAVE}")
+    print(f" Model saved to: {MODEL_SAVE}")
     return model
 
-# ─────────────────────────────────────────────
-# 5. INFERENCE ON TEST IMAGES
-# ─────────────────────────────────────────────
+# Step 5. Inference 
 def run_inference(model, test_dir):
+    # Switch model to evaluation mode
     model.eval()
 
     supported = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
@@ -208,7 +193,7 @@ def run_inference(model, test_dir):
     ])
 
     if not image_files:
-        print(f"⚠️  No images found in {test_dir}")
+        print(f"No images found in {test_dir}")
         return
 
     print("\n" + "=" * 65)
@@ -230,11 +215,10 @@ def run_inference(model, test_dir):
             pred_class  = CLASS_NAMES[pred_idx]
             confidence  = probs[pred_idx]
 
-            # All class probabilities
             all_probs = {CLASS_NAMES[i]: f"{probs[i]:.2%}" for i in range(NUM_CLASSES)}
 
             print(f"{fname:<35} {pred_class:<12} {confidence:>9.2%}")
-            print(f"  ↳ All scores: {all_probs}")
+            print(f"↳ All scores: {all_probs}")
 
             results.append({
                 "image":      fname,
@@ -258,29 +242,27 @@ def run_inference(model, test_dir):
 
     return results
 
-# ─────────────────────────────────────────────
-# 6. MAIN
-# ─────────────────────────────────────────────
+# Step 6. Execution
 def main():
-    print(f"🖥️  Using device: {DEVICE}\n")
+    print(f" Running on: {DEVICE}\n")
 
-    # --- Train ---
-    print("📂 Loading training data...")
+    print(" Loading training data...")
     train_loader, val_loader = build_dataloaders(TRAIN_DIR)
 
-    print("\n🏗️  Building model (EfficientNet-B0)...")
+    print("\n Building model (EfficientNet-B0)...")
     model = build_model()
 
+    # Print model size information
     total_params     = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"   Total params:     {total_params:,}")
     print(f"   Trainable params: {trainable_params:,}")
 
-    print(f"\n🚀 Training for {NUM_EPOCHS} epochs...")
+    # Train the model
+    print(f"\n Training for {NUM_EPOCHS} epochs...")
     model = train_model(model, train_loader, val_loader)
 
-    # --- Inference ---
-    print(f"\n🔍 Running inference on test images in '{TEST_DIR}'...")
+    print(f"\n Running inference on test images in '{TEST_DIR}'...")
     run_inference(model, TEST_DIR)
 
 

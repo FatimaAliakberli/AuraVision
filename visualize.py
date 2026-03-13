@@ -1,23 +1,3 @@
-"""
-Age Group Patch Visualizer
-===========================
-Uses the trained EfficientNet-B0 classifier to classify patches
-of each test image, then overlays colored regions:
-
-    🟢 GREEN  → children
-    🔵 BLUE   → adults
-    🔴 RED    → seniors
-
-Saves annotated images to: results/
-
-Usage:
-    python visualize_results.py
-
-Requirements:
-    - age_classifier.pth must exist (run age_group_classifier.py first)
-    - dataset/test/  folder with test images
-"""
-
 import os
 import torch
 import torch.nn as nn
@@ -25,24 +5,20 @@ import numpy as np
 from torchvision import transforms, models
 from PIL import Image, ImageDraw, ImageFont
 
-# ─────────────────────────────────────────────
-# CONFIG
-# ─────────────────────────────────────────────
+# Main paths and settings
 TEST_DIR        = "dataset/test"
 RESULTS_DIR     = "results_updated"
 MODEL_PATH      = "age_classifier.pth"
 IMAGE_SIZE      = 224
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Grid: how many patches across width and height
-# 4x4 = 16 patches per image (good balance of detail vs speed)
+# Grid Settings: Divide image into a 4x4 grid (16 squares total)
 GRID_COLS       = 4
 GRID_ROWS       = 4
 
 # Transparency of the color overlay (0=invisible, 255=solid)
 OVERLAY_ALPHA   = 110
 
-# Class names must match training order (alphabetical = ImageFolder default)
 CLASS_NAMES     = ["adults", "children", "seniors"]
 
 # Colors per class: (R, G, B)
@@ -52,9 +28,7 @@ CLASS_COLORS = {
     "seniors":  (234,  67,  53),   # Red
 }
 
-# ─────────────────────────────────────────────
-# TRANSFORMS  (same as val_transforms in training)
-# ─────────────────────────────────────────────
+# Image preprocessing for prediction
 infer_transform = transforms.Compose([
     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
     transforms.ToTensor(),
@@ -62,9 +36,7 @@ infer_transform = transforms.Compose([
                          [0.229, 0.224, 0.225]),
 ])
 
-# ─────────────────────────────────────────────
-# LOAD MODEL
-# ─────────────────────────────────────────────
+# Loading the model
 def load_model(model_path):
     model = models.efficientnet_b0(weights=None)
     in_features = model.classifier[1].in_features
@@ -78,14 +50,12 @@ def load_model(model_path):
     model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.to(DEVICE)
     model.eval()
-    print(f"✅ Model loaded from: {model_path}")
+    print(f" Model loaded from: {model_path}")
     return model
 
-# ─────────────────────────────────────────────
-# CLASSIFY A SINGLE PATCH
-# ─────────────────────────────────────────────
+# Classifying a single patch
 def classify_patch(model, patch_img):
-    """Returns (class_name, confidence, all_probs)"""
+    # Takes a small square of an image and predicts the age group for just that square
     tensor = infer_transform(patch_img).unsqueeze(0).to(DEVICE)
     with torch.no_grad():
         logits = model(tensor)
@@ -93,16 +63,16 @@ def classify_patch(model, patch_img):
     pred_idx   = int(np.argmax(probs))
     return CLASS_NAMES[pred_idx], float(probs[pred_idx]), probs
 
-# ─────────────────────────────────────────────
-# PROCESS ONE IMAGE
-# ─────────────────────────────────────────────
+
 def process_image(model, img_path, save_path):
     img = Image.open(img_path).convert("RGB")
     W, H = img.size
 
+    # Split image into equal patches
     patch_w = W // GRID_COLS
     patch_h = H // GRID_ROWS
 
+    # Create a transparent layer to draw the colors on
     overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw    = ImageDraw.Draw(overlay)
 
@@ -114,6 +84,7 @@ def process_image(model, img_path, save_path):
     except:
         patch_font = ImageFont.load_default()
 
+    # Go through every square in the grid
     for row in range(GRID_ROWS):
         for col in range(GRID_COLS):
             x0 = col * patch_w
@@ -125,6 +96,7 @@ def process_image(model, img_path, save_path):
             cls, conf, _ = classify_patch(model, patch)
             class_vote_counts[cls] += 1
 
+            # Fill patch with its class color
             color = CLASS_COLORS[cls] + (OVERLAY_ALPHA,)
             draw.rectangle([x0, y0, x1, y1], fill=color)
 
@@ -133,9 +105,11 @@ def process_image(model, img_path, save_path):
             draw.rectangle([x0, y0, x1 - 1, y1 - 1],
                            outline=(255, 255, 255, 160), width=1)
 
+    # Get the class with the highest number of patch votes
     majority_class = max(class_vote_counts, key=class_vote_counts.get)
     majority_count = class_vote_counts[majority_class]
 
+    # Merge overlay with original image
     img_rgba   = img.convert("RGBA")
     composited = Image.alpha_composite(img_rgba, overlay)
     result_img = composited.convert("RGB")
@@ -151,7 +125,7 @@ def process_image(model, img_path, save_path):
     except:
         title_font = legend_font = small_font = ImageFont.load_default()
 
-    # ── Top banner with majority result ──
+    # Top banner with majority result
     banner_color = CLASS_COLORS[majority_class]
     result_draw.rectangle([0, 0, W, 40], fill=banner_color)
     vote_summary = "  |  ".join(
@@ -164,7 +138,7 @@ def process_image(model, img_path, save_path):
         font=title_font,
     )
 
-    # ── Bottom legend box ──
+    # Bottom legend box
     lx, ly = 10, H - 95
     result_draw.rectangle([lx - 6, ly - 6, lx + 185, ly + 88],
                           fill=(20, 20, 20))
@@ -179,13 +153,11 @@ def process_image(model, img_path, save_path):
     result_img.save(save_path, quality=95)
     return majority_class, class_vote_counts
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
+
 def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    print(f"🖥️  Device: {DEVICE}")
+    print(f" Running on: {DEVICE}")
     model = load_model(MODEL_PATH)
 
     supported   = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
@@ -195,10 +167,10 @@ def main():
     ])
 
     if not image_files:
-        print(f"⚠️  No images found in {TEST_DIR}")
+        print(f" No images found in {TEST_DIR}")
         return
 
-    print(f"\n🖼️  Processing {len(image_files)} images with {GRID_ROWS}×{GRID_COLS} patch grid...\n")
+    print(f"\n Processing {len(image_files)} images with {GRID_ROWS}×{GRID_COLS} patch grid...\n")
     print(f"{'Image':<50} {'Majority':<12} Patch Votes")
     print("─" * 80)
 
@@ -214,8 +186,8 @@ def main():
         except Exception as e:
             print(f"{fname:<50} ERROR: {e}")
 
-    print(f"\n✅ All results saved to: {RESULTS_DIR}/")
-    print(f"   🔵 Blue = Adults  |  🟢 Green = Children  |  🔴 Red = Seniors")
+    print(f"\n All results saved to: {RESULTS_DIR}/")
+    print(f" Blue = Adults  | Green = Children  |  Red = Seniors")
 
 if __name__ == "__main__":
     main()
