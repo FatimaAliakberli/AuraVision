@@ -67,6 +67,33 @@ EfficientNet-B0 (pretrained, partial freeze)
 - 40 epochs, batch size 8
 
 
+## Usage
+
+### 1. Install Dependencies
+
+```bash
+pip install torch torchvision pillow numpy
+```
+
+### 2. Train the Model
+
+```bash
+python train_model.py
+```
+
+Reads from `dataset/train/`, trains for 40 epochs, and saves the best model to `age_classifier.pth`. Training and validation accuracy are printed each epoch.
+
+### 3. Run Inference & Visualize
+
+```bash
+python visualize_results.py
+```
+
+Processes every image in `dataset/test/`, divides each into a **4×4 patch grid**, classifies each patch independently using the trained model, and saves color-coded results to `results/`.
+
+Each saved image includes a **top banner** showing the majority class and patch vote counts, plus a **legend** in the corner. Example output filename: `pexels-example-1234_result.jpg`
+
+
 ## Evaluation 
 Evaluating the performance of AuraVision was challenging because the test images were **not labeled with ground truth age groups**. Without labeled test data, it was not possible to compute standard quantitative metrics such as **accuracy, precision, recall, or F1-score** on the test set.
 
@@ -97,41 +124,6 @@ By manually analyzing the visualization outputs on the test images, we observed 
 - **Adults and seniors were more difficult for the model to distinguish**. In several cases, the model predicted adults when the person appeared to be a senior, and vice versa.
 
 - Many misclassifications occurred when individuals in the image had **similar clothing styles**, such as formal outfits, coats, or neutral-colored attire, which reduced the visual cues available for distinguishing between these age groups.
-
-
-## Usage
-
-### 1. Install Dependencies
-
-```bash
-pip install torch torchvision pillow numpy
-```
-
-### 2. Train the Model
-
-```bash
-python train_model.py
-```
-
-Reads from `dataset/train/`, trains for 40 epochs, and saves the best model to `age_classifier.pth`. Training and validation accuracy are printed each epoch.
-
-### 3. Run Inference & Visualize
-
-```bash
-python visualize_results.py
-```
-
-Processes every image in `dataset/test/`, divides each into a **4×4 patch grid**, classifies each patch independently using the trained model, and saves color-coded results to `results/`.
-
-**Color coding:**
-
-| Color | Age Group |
-|---|---|
-| 🔵 Blue | Adults |
-| 🟢 Green | Children |
-| 🔴 Red | Seniors |
-
-Each saved image includes a **top banner** showing the majority class and patch vote counts, plus a **legend** in the corner. Example output filename: `pexels-example-1234_result.jpg`
 
 
 ## Limitations — Milestone 1
