@@ -6,16 +6,19 @@ Trains a transfer learning model (EfficientNet-B0) on three classes:
   - adults
   - seniors
 
-Then runs inference on test images and prints the predicted majority
-age group for each image, along with confidence scores.
+Then runs inference on a structured test set and reports per-class
+accuracy and a full classification report.
 
 Expected folder structure:
-    dataset/
+    split_dataset/
         train/
             children/   *.jpg / *.png ...
             adults/     *.jpg / *.png ...
             seniors/    *.jpg / *.png ...
-        test/           *.jpg / *.png ...  (mixed, no subfolders)
+        test/
+            children/   *.jpg / *.png ...
+            adults/     *.jpg / *.png ...
+            seniors/    *.jpg / *.png ...
 
 Usage:
     python age_group_classifier.py
@@ -30,25 +33,28 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision import datasets, transforms, models
 from PIL import Image
 import numpy as np
+from collections import Counter
 
 # ─────────────────────────────────────────────
 # CONFIG  — adjust paths here
 # ─────────────────────────────────────────────
-TRAIN_DIR   = "dataset/train"   # subfolders: children/, adults/, seniors/
-TEST_DIR    = "dataset/test"    # flat folder with mixed images
+TRAIN_DIR   = "split_dataset/train"   # subfolders: children/, adults/, seniors/
+TEST_DIR    = "test_dataset"    # same subfolder structure as train
 MODEL_SAVE  = "age_classifier.pth"
 
 NUM_EPOCHS      = 40
-BATCH_SIZE      = 8             # small because dataset is tiny
+BATCH_SIZE      = 8
 LEARNING_RATE   = 1e-4
 IMAGE_SIZE      = 224
 NUM_CLASSES     = 3
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-CLASS_NAMES = ["adults", "children", "seniors"]   # sorted alphabetically to match ImageFolder
+# Will be set after ImageFolder scans the train directory.
+# Keeping it here as a reference; never derive it from the test folder.
+CLASS_NAMES = []
 
 # ─────────────────────────────────────────────
-# 1. DATA TRANSFORMS  (heavy augmentation for tiny dataset)
+# 1. DATA TRANSFORMS
 # ─────────────────────────────────────────────
 train_transforms = transforms.Compose([
     transforms.Resize((IMAGE_SIZE + 32, IMAGE_SIZE + 32)),
@@ -71,26 +77,33 @@ val_transforms = transforms.Compose([
 ])
 
 # ─────────────────────────────────────────────
-# 2. DATASET  — ImageFolder auto-assigns labels from subfolder names
+# 2. DATASET
 # ─────────────────────────────────────────────
 def build_dataloaders(train_dir):
+    """
+    Scans train_dir with ImageFolder to discover classes.
+    The class-to-index mapping produced here is the canonical one
+    used for ALL subsequent operations, including test evaluation.
+    """
+    global CLASS_NAMES
+
     full_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
 
-    # Update CLASS_NAMES to match what ImageFolder found (alphabetical)
-    global CLASS_NAMES
+    # Store the canonical class list from the TRAINING directory only.
     CLASS_NAMES = full_dataset.classes
-    print(f"Classes detected: {CLASS_NAMES}")
+    print(f"Classes detected from train dir: {CLASS_NAMES}")
+    print(f"Class-to-index mapping:          {full_dataset.class_to_idx}")
 
-    # Split 85% train / 15% validation
-    n_total  = len(full_dataset)
-    n_val    = max(1, int(0.15 * n_total))
-    n_train  = n_total - n_val
+    # 85 / 15 split
+    n_total = len(full_dataset)
+    n_val   = max(1, int(0.15 * n_total))
+    n_train = n_total - n_val
     train_set, val_set = torch.utils.data.random_split(
         full_dataset, [n_train, n_val],
         generator=torch.Generator().manual_seed(42)
     )
 
-    # Apply lighter transforms to val split
+    # Lighter transforms for the validation split
     val_set.dataset = copy.deepcopy(full_dataset)
     val_set.dataset.transform = val_transforms
 
@@ -98,30 +111,66 @@ def build_dataloaders(train_dir):
     targets      = [full_dataset.targets[i] for i in train_set.indices]
     class_counts = np.bincount(targets)
     print(f"Train class distribution: { {CLASS_NAMES[i]: int(class_counts[i]) for i in range(len(CLASS_NAMES))} }")
-    weights      = 1.0 / class_counts
+    weights        = 1.0 / class_counts
     sample_weights = [weights[t] for t in targets]
-    sampler      = WeightedRandomSampler(sample_weights, len(sample_weights))
+    sampler        = WeightedRandomSampler(sample_weights, len(sample_weights))
 
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, sampler=sampler)
     val_loader   = DataLoader(val_set,   batch_size=BATCH_SIZE, shuffle=False)
 
-    return train_loader, val_loader
+    return train_loader, val_loader, full_dataset.class_to_idx
+
+
+def build_test_loader(test_dir, train_class_to_idx):
+    """
+    Loads the test set using the SAME class-to-index mapping that was
+    established during training.  Even if ImageFolder would normally
+    produce a different alphabetical order, we force it to match training.
+
+    Returns the DataLoader and the underlying ImageFolder dataset.
+    """
+    # Build a temporary ImageFolder just to discover which files exist
+    # in which subfolder — we do NOT use its class_to_idx.
+    raw_test = datasets.ImageFolder(test_dir, transform=val_transforms)
+
+    # Remap every sample's label from the test folder's own index to the
+    # training index.  This is the key step that prevents a mismatch.
+    test_class_to_idx = raw_test.class_to_idx   # may differ from training!
+    print(f"\nTest dir class-to-index (raw):    {test_class_to_idx}")
+    print(f"Train class-to-index (canonical): {train_class_to_idx}")
+
+    # Build a remapping table: test_label → train_label
+    remap = {}
+    for class_name, test_idx in test_class_to_idx.items():
+        if class_name not in train_class_to_idx:
+            raise ValueError(
+                f"Class '{class_name}' found in test set but not in training set. "
+                f"Training classes: {list(train_class_to_idx.keys())}"
+            )
+        remap[test_idx] = train_class_to_idx[class_name]
+
+    # Apply the remapping in-place
+    raw_test.samples = [(path, remap[label]) for path, label in raw_test.samples]
+    raw_test.targets = [remap[label] for label in raw_test.targets]
+    # Also fix class_to_idx and classes so they match training
+    raw_test.class_to_idx = train_class_to_idx
+    raw_test.classes = list(CLASS_NAMES)
+
+    test_loader = DataLoader(raw_test, batch_size=BATCH_SIZE, shuffle=False)
+    return test_loader, raw_test
 
 # ─────────────────────────────────────────────
-# 3. MODEL  — EfficientNet-B0 pretrained, fine-tune last layers
+# 3. MODEL
 # ─────────────────────────────────────────────
 def build_model():
     model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
-    # Freeze all layers first
     for param in model.parameters():
         param.requires_grad = False
 
-    # Unfreeze last 2 blocks of the feature extractor for fine-tuning
     for param in model.features[6:].parameters():
         param.requires_grad = True
 
-    # Replace classifier head
     in_features = model.classifier[1].in_features
     model.classifier = nn.Sequential(
         nn.Dropout(p=0.4),
@@ -137,18 +186,18 @@ def build_model():
 # 4. TRAINING LOOP
 # ─────────────────────────────────────────────
 def train_model(model, train_loader, val_loader):
-    criterion  = nn.CrossEntropyLoss()
-    optimizer  = optim.AdamW(
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE, weight_decay=1e-4
     )
-    scheduler  = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
     best_val_acc = 0.0
     best_weights = copy.deepcopy(model.state_dict())
 
     for epoch in range(NUM_EPOCHS):
-        # --- Train phase ---
+        # Train
         model.train()
         running_loss, correct, total = 0.0, 0, 0
         for inputs, labels in train_loader:
@@ -167,7 +216,7 @@ def train_model(model, train_loader, val_loader):
         train_loss = running_loss / total
         train_acc  = correct / total
 
-        # --- Val phase ---
+        # Validate
         model.eval()
         val_correct, val_total = 0, 0
         with torch.no_grad():
@@ -196,67 +245,81 @@ def train_model(model, train_loader, val_loader):
     return model
 
 # ─────────────────────────────────────────────
-# 5. INFERENCE ON TEST IMAGES
+# 5. INFERENCE ON STRUCTURED TEST SET
 # ─────────────────────────────────────────────
-def run_inference(model, test_dir):
+def run_inference(model, test_loader, test_dataset):
+    """
+    Runs inference on a structured test set (subfolders per class).
+    Reports per-image predictions AND overall / per-class accuracy.
+    Ground-truth labels come from the folder structure, remapped to
+    the canonical training class indices — so there is no label leakage.
+    """
     model.eval()
 
-    supported = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-    image_files = sorted([
-        f for f in os.listdir(test_dir)
-        if f.lower().endswith(supported)
-    ])
+    all_preds  = []
+    all_labels = []
+    all_probs  = []
 
-    if not image_files:
-        print(f"⚠️  No images found in {test_dir}")
-        return
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs = inputs.to(DEVICE)
+            logits = model(inputs)
+            probs  = torch.softmax(logits, dim=1).cpu().numpy()
+            preds  = np.argmax(probs, axis=1)
 
-    print("\n" + "=" * 65)
-    print(f"{'Image':<35} {'Prediction':<12} {'Confidence':>10}")
-    print("=" * 65)
+            all_preds.extend(preds.tolist())
+            all_labels.extend(labels.numpy().tolist())
+            all_probs.extend(probs.tolist())
 
-    results = []
-    for fname in image_files:
-        img_path = os.path.join(test_dir, fname)
-        try:
-            img    = Image.open(img_path).convert("RGB")
-            tensor = val_transforms(img).unsqueeze(0).to(DEVICE)
+    # ── Per-image table ──────────────────────────────────────────────
+    print("\n" + "=" * 75)
+    print(f"{'Image':<35} {'True':<12} {'Predicted':<12} {'Confidence':>10}")
+    print("=" * 75)
 
-            with torch.no_grad():
-                logits = model(tensor)
-                probs  = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
+    image_paths = [s[0] for s in test_dataset.samples]
 
-            pred_idx    = int(np.argmax(probs))
-            pred_class  = CLASS_NAMES[pred_idx]
-            confidence  = probs[pred_idx]
+    for i, (path, true_idx, pred_idx, probs) in enumerate(
+            zip(image_paths, all_labels, all_preds, all_probs)):
+        fname      = os.path.basename(path)
+        true_cls   = CLASS_NAMES[true_idx]
+        pred_cls   = CLASS_NAMES[pred_idx]
+        confidence = probs[pred_idx]
+        match_mark = "✓" if true_idx == pred_idx else "✗"
 
-            # All class probabilities
-            all_probs = {CLASS_NAMES[i]: f"{probs[i]:.2%}" for i in range(NUM_CLASSES)}
+        score_str = {CLASS_NAMES[j]: f"{probs[j]:.2%}" for j in range(NUM_CLASSES)}
+        print(f"{fname:<35} {true_cls:<12} {pred_cls:<12} {confidence:>9.2%}  {match_mark}")
+        print(f"  ↳ All scores: {score_str}")
 
-            print(f"{fname:<35} {pred_class:<12} {confidence:>9.2%}")
-            print(f"  ↳ All scores: {all_probs}")
+    print("=" * 75)
 
-            results.append({
-                "image":      fname,
-                "prediction": pred_class,
-                "confidence": confidence,
-                "scores":     all_probs,
-            })
+    # ── Overall accuracy ─────────────────────────────────────────────
+    all_preds_arr  = np.array(all_preds)
+    all_labels_arr = np.array(all_labels)
+    overall_acc    = (all_preds_arr == all_labels_arr).mean()
 
-        except Exception as e:
-            print(f"{fname:<35} ERROR: {e}")
+    print(f"\n📊 Overall test accuracy: {overall_acc:.2%}  ({int((all_preds_arr == all_labels_arr).sum())}/{len(all_labels_arr)})")
 
-    print("=" * 65)
+    # ── Per-class accuracy ───────────────────────────────────────────
+    print("\n📋 Per-class results:")
+    print(f"  {'Class':<12} {'Correct':>8} {'Total':>7} {'Accuracy':>10}")
+    print(f"  {'-'*40}")
+    for cls_idx, cls_name in enumerate(CLASS_NAMES):
+        mask      = all_labels_arr == cls_idx
+        if mask.sum() == 0:
+            print(f"  {cls_name:<12} {'—':>8} {'0':>7} {'—':>10}")
+            continue
+        correct   = (all_preds_arr[mask] == cls_idx).sum()
+        total     = mask.sum()
+        acc       = correct / total
+        print(f"  {cls_name:<12} {correct:>8} {total:>7} {acc:>9.2%}")
 
-    # Summary
-    from collections import Counter
-    preds = [r["prediction"] for r in results]
-    counts = Counter(preds)
-    print(f"\n📊 Prediction summary across {len(results)} test images:")
-    for cls, cnt in counts.most_common():
+    # ── Prediction distribution ──────────────────────────────────────
+    print("\n📊 Prediction distribution across test images:")
+    pred_counts = Counter([CLASS_NAMES[p] for p in all_preds])
+    for cls, cnt in pred_counts.most_common():
         print(f"   {cls}: {cnt} image(s)")
 
-    return results
+    return all_preds, all_labels
 
 # ─────────────────────────────────────────────
 # 6. MAIN
@@ -264,9 +327,9 @@ def run_inference(model, test_dir):
 def main():
     print(f"🖥️  Using device: {DEVICE}\n")
 
-    # --- Train ---
+    # ── Train ────────────────────────────────────────────────────────
     print("📂 Loading training data...")
-    train_loader, val_loader = build_dataloaders(TRAIN_DIR)
+    train_loader, val_loader, train_class_to_idx = build_dataloaders(TRAIN_DIR)
 
     print("\n🏗️  Building model (EfficientNet-B0)...")
     model = build_model()
@@ -279,9 +342,15 @@ def main():
     print(f"\n🚀 Training for {NUM_EPOCHS} epochs...")
     model = train_model(model, train_loader, val_loader)
 
-    # --- Inference ---
-    print(f"\n🔍 Running inference on test images in '{TEST_DIR}'...")
-    run_inference(model, TEST_DIR)
+    # ── Test ─────────────────────────────────────────────────────────
+    # Pass train_class_to_idx so the test loader uses the SAME label
+    # mapping — the test folder's own alphabetical order is discarded.
+    print(f"\n📂 Loading test data from '{TEST_DIR}'...")
+    test_loader, test_dataset = build_test_loader(TEST_DIR, train_class_to_idx)
+    print(f"   Test images found: {len(test_dataset)}")
+
+    print(f"\n🔍 Running inference on test set...")
+    run_inference(model, test_loader, test_dataset)
 
 
 if __name__ == "__main__":
