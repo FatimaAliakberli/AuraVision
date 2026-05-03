@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """
 Age Group Majority Classifier
 ==============================
@@ -24,6 +25,8 @@ Usage:
     python age_group_classifier.py
 """
 
+=======
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 import os
 import copy
 import torch
@@ -35,20 +38,30 @@ from PIL import Image
 import numpy as np
 from collections import Counter
 
+<<<<<<< HEAD
 # ─────────────────────────────────────────────
 # CONFIG  — adjust paths here
 # ─────────────────────────────────────────────
 TRAIN_DIR   = "split_dataset/train"   # subfolders: children/, adults/, seniors/
 TEST_DIR    = "test_dataset"    # same subfolder structure as train
+=======
+# Step 1. Configurations & Settings
+
+# Paths of our dataset
+TRAIN_DIR   = "dataset/train"   # subfolders: children/, adults/, seniors/
+TEST_DIR    = "dataset/test"    
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 MODEL_SAVE  = "age_classifier.pth"
 
+# Training Hyperparameters
 NUM_EPOCHS      = 40
 BATCH_SIZE      = 8
 LEARNING_RATE   = 1e-4
 IMAGE_SIZE      = 224
-NUM_CLASSES     = 3
+NUM_CLASSES     = 3             # children, adults, seniors
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+<<<<<<< HEAD
 # Will be set after ImageFolder scans the train directory.
 # Keeping it here as a reference; never derive it from the test folder.
 CLASS_NAMES = []
@@ -56,6 +69,16 @@ CLASS_NAMES = []
 # ─────────────────────────────────────────────
 # 1. DATA TRANSFORMS
 # ─────────────────────────────────────────────
+=======
+CLASS_NAMES = ["adults", "children", "seniors"]  
+
+
+# Step 2. Data Processing 
+
+# Training transforms:
+# these create slightly different versions of the same images
+# to help the model learn better from a small dataset, data augmentation 
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 train_transforms = transforms.Compose([
     transforms.Resize((IMAGE_SIZE + 32, IMAGE_SIZE + 32)),
     transforms.RandomCrop(IMAGE_SIZE),
@@ -69,6 +92,7 @@ train_transforms = transforms.Compose([
                          [0.229, 0.224, 0.225]),
 ])
 
+# Transforms for validation: 
 val_transforms = transforms.Compose([
     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
     transforms.ToTensor(),
@@ -76,9 +100,12 @@ val_transforms = transforms.Compose([
                          [0.229, 0.224, 0.225]),
 ])
 
+<<<<<<< HEAD
 # ─────────────────────────────────────────────
 # 2. DATASET
 # ─────────────────────────────────────────────
+=======
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 def build_dataloaders(train_dir):
     """
     Scans train_dir with ImageFolder to discover classes.
@@ -89,7 +116,11 @@ def build_dataloaders(train_dir):
 
     full_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
 
+<<<<<<< HEAD
     # Store the canonical class list from the TRAINING directory only.
+=======
+    global CLASS_NAMES
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
     CLASS_NAMES = full_dataset.classes
     print(f"Classes detected from train dir: {CLASS_NAMES}")
     print(f"Class-to-index mapping:          {full_dataset.class_to_idx}")
@@ -103,15 +134,24 @@ def build_dataloaders(train_dir):
         generator=torch.Generator().manual_seed(42)
     )
 
+<<<<<<< HEAD
     # Lighter transforms for the validation split
+=======
+    # Apply lighter transforms for validation data
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
     val_set.dataset = copy.deepcopy(full_dataset)
     val_set.dataset.transform = val_transforms
 
-    # Weighted sampler to handle class imbalance
+    # Handle class imbalance by giving higher chance to underrepresented classes
     targets      = [full_dataset.targets[i] for i in train_set.indices]
     class_counts = np.bincount(targets)
     print(f"Train class distribution: { {CLASS_NAMES[i]: int(class_counts[i]) for i in range(len(CLASS_NAMES))} }")
+<<<<<<< HEAD
     weights        = 1.0 / class_counts
+=======
+    
+    weights      = 1.0 / class_counts
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
     sample_weights = [weights[t] for t in targets]
     sampler        = WeightedRandomSampler(sample_weights, len(sample_weights))
 
@@ -159,18 +199,38 @@ def build_test_loader(test_dir, train_class_to_idx):
     test_loader = DataLoader(raw_test, batch_size=BATCH_SIZE, shuffle=False)
     return test_loader, raw_test
 
+<<<<<<< HEAD
 # ─────────────────────────────────────────────
 # 3. MODEL
 # ─────────────────────────────────────────────
+=======
+
+# Step 3. The Model
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 def build_model():
+    # Load a pretrained EfficientNet-B0 model
     model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
+<<<<<<< HEAD
     for param in model.parameters():
         param.requires_grad = False
 
     for param in model.features[6:].parameters():
         param.requires_grad = True
 
+=======
+    # Freeze all pretrained layers first: 
+    # We don't need to re-learn basic shapes and colors
+    for param in model.parameters():
+        param.requires_grad = False
+
+    # Unfreeze the last part of the feature extractor:
+    # so the model can adapt better to this task  
+    for param in model.features[6:].parameters():
+        param.requires_grad = True
+
+    # Replace the final classifier with a new one for 3 classes
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
     in_features = model.classifier[1].in_features
     model.classifier = nn.Sequential(
         nn.Dropout(p=0.4),
@@ -182,22 +242,39 @@ def build_model():
 
     return model.to(DEVICE)
 
-# ─────────────────────────────────────────────
-# 4. TRAINING LOOP
-# ─────────────────────────────────────────────
+# Step 4. Training the Model 
 def train_model(model, train_loader, val_loader):
+<<<<<<< HEAD
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=LEARNING_RATE, weight_decay=1e-4
     )
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
+=======
+    # Loss function for multi-class classification
+    criterion  = nn.CrossEntropyLoss()
+    
+    # Optimizer updates only the trainable parameters
+    optimizer  = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=LEARNING_RATE, weight_decay=1e-4
+    )
+    
+    # Learning rate schedular:
+    # Automatically slows down learning speed as we get closer to the best result
+    scheduler  = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 
     best_val_acc = 0.0
     best_weights = copy.deepcopy(model.state_dict())
 
     for epoch in range(NUM_EPOCHS):
+<<<<<<< HEAD
         # Train
+=======
+        # Training Phase:
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
         model.train()
         running_loss, correct, total = 0.0, 0, 0
         for inputs, labels in train_loader:
@@ -216,7 +293,11 @@ def train_model(model, train_loader, val_loader):
         train_loss = running_loss / total
         train_acc  = correct / total
 
+<<<<<<< HEAD
         # Validate
+=======
+        # Validation Phase:
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
         model.eval()
         val_correct, val_total = 0, 0
         with torch.no_grad():
@@ -234,16 +315,18 @@ def train_model(model, train_loader, val_loader):
               f"Train Loss: {train_loss:.4f}  Train Acc: {train_acc:.2%}  "
               f"Val Acc: {val_acc:.2%}")
 
+        # Save the best model based on validation accuracy
         if val_acc >= best_val_acc:
             best_val_acc = val_acc
             best_weights = copy.deepcopy(model.state_dict())
 
-    print(f"\n✅ Best validation accuracy: {best_val_acc:.2%}")
+    print(f"\n Best validation accuracy: {best_val_acc:.2%}")
     model.load_state_dict(best_weights)
     torch.save(model.state_dict(), MODEL_SAVE)
-    print(f"✅ Model saved to: {MODEL_SAVE}")
+    print(f" Model saved to: {MODEL_SAVE}")
     return model
 
+<<<<<<< HEAD
 # ─────────────────────────────────────────────
 # 5. INFERENCE ON STRUCTURED TEST SET
 # ─────────────────────────────────────────────
@@ -254,18 +337,29 @@ def run_inference(model, test_loader, test_dataset):
     Ground-truth labels come from the folder structure, remapped to
     the canonical training class indices — so there is no label leakage.
     """
+=======
+# Step 5. Inference 
+def run_inference(model, test_dir):
+    # Switch model to evaluation mode
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
     model.eval()
 
     all_preds  = []
     all_labels = []
     all_probs  = []
 
+<<<<<<< HEAD
     with torch.no_grad():
         for inputs, labels in test_loader:
             inputs = inputs.to(DEVICE)
             logits = model(inputs)
             probs  = torch.softmax(logits, dim=1).cpu().numpy()
             preds  = np.argmax(probs, axis=1)
+=======
+    if not image_files:
+        print(f"No images found in {test_dir}")
+        return
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 
             all_preds.extend(preds.tolist())
             all_labels.extend(labels.numpy().tolist())
@@ -286,11 +380,18 @@ def run_inference(model, test_loader, test_dataset):
         confidence = probs[pred_idx]
         match_mark = "✓" if true_idx == pred_idx else "✗"
 
+<<<<<<< HEAD
         score_str = {CLASS_NAMES[j]: f"{probs[j]:.2%}" for j in range(NUM_CLASSES)}
         print(f"{fname:<35} {true_cls:<12} {pred_cls:<12} {confidence:>9.2%}  {match_mark}")
         print(f"  ↳ All scores: {score_str}")
 
     print("=" * 75)
+=======
+            all_probs = {CLASS_NAMES[i]: f"{probs[i]:.2%}" for i in range(NUM_CLASSES)}
+
+            print(f"{fname:<35} {pred_class:<12} {confidence:>9.2%}")
+            print(f"↳ All scores: {all_probs}")
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 
     # ── Overall accuracy ─────────────────────────────────────────────
     all_preds_arr  = np.array(all_preds)
@@ -321,27 +422,33 @@ def run_inference(model, test_loader, test_dataset):
 
     return all_preds, all_labels
 
-# ─────────────────────────────────────────────
-# 6. MAIN
-# ─────────────────────────────────────────────
+# Step 6. Execution
 def main():
-    print(f"🖥️  Using device: {DEVICE}\n")
+    print(f" Running on: {DEVICE}\n")
 
+<<<<<<< HEAD
     # ── Train ────────────────────────────────────────────────────────
     print("📂 Loading training data...")
     train_loader, val_loader, train_class_to_idx = build_dataloaders(TRAIN_DIR)
+=======
+    print(" Loading training data...")
+    train_loader, val_loader = build_dataloaders(TRAIN_DIR)
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 
-    print("\n🏗️  Building model (EfficientNet-B0)...")
+    print("\n Building model (EfficientNet-B0)...")
     model = build_model()
 
+    # Print model size information
     total_params     = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"   Total params:     {total_params:,}")
     print(f"   Trainable params: {trainable_params:,}")
 
-    print(f"\n🚀 Training for {NUM_EPOCHS} epochs...")
+    # Train the model
+    print(f"\n Training for {NUM_EPOCHS} epochs...")
     model = train_model(model, train_loader, val_loader)
 
+<<<<<<< HEAD
     # ── Test ─────────────────────────────────────────────────────────
     # Pass train_class_to_idx so the test loader uses the SAME label
     # mapping — the test folder's own alphabetical order is discarded.
@@ -351,6 +458,10 @@ def main():
 
     print(f"\n🔍 Running inference on test set...")
     run_inference(model, test_loader, test_dataset)
+=======
+    print(f"\n Running inference on test images in '{TEST_DIR}'...")
+    run_inference(model, TEST_DIR)
+>>>>>>> 379f409d413be5eedc32be4f3d045ab9c4851ff9
 
 
 if __name__ == "__main__":
