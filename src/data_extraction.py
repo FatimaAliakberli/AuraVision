@@ -1,27 +1,18 @@
-"""
-data_extraction.py
-==================
-Downloads images from Pexels for all three age-group classes and
-saves them into the crowd_dataset/ folder, ready for split_data.py.
-
-API key is loaded from the .env file — never hardcoded here.
-"""
-
 import os
 import requests
 from dotenv import load_dotenv
 
-# ── Load API key from .env ─────────────────────────────────────────────────────
+# Load API key from .env 
 load_dotenv()
 API_KEY = os.getenv("PEXELS_API_KEY")
 
-if not API_KEY or API_KEY == "your_pexels_api_key_here":
+if not API_KEY:
     raise EnvironmentError(
         "PEXELS_API_KEY not set. Please add it to your .env file:\n"
-        "  PEXELS_API_KEY=your_actual_key_here"
+        "  PEXELS_API_KEY=your_api_key_here"
     )
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration:
 SAVE_DIR         = "extracted_data"
 IMAGES_PER_QUERY = 40
 
@@ -76,11 +67,9 @@ TEST_CLASSES = {
         "Pensioners traveling in tour group",
     ],
 }
-# ──────────────────────────────────────────────────────────────────────────────
-
 
 def _download_for_classes(classes: dict, save_dir: str) -> None:
-    """Downloads images for a given classes dict into save_dir/<ClassName>/."""
+    # Downloads images for a given classes dict into save_dir/<ClassName>/
     headers = {"Authorization": API_KEY}
 
     for label, queries in classes.items():
@@ -95,31 +84,44 @@ def _download_for_classes(classes: dict, save_dir: str) -> None:
                 data = response.json()
                 for i, photo in enumerate(data["photos"]):
                     img_url  = photo["src"]["large"]
-                    img_data = requests.get(img_url).content
                     filename = f"{query.replace(' ', '_')}_{i}.jpg"
-                    with open(os.path.join(class_path, filename), "wb") as f:
-                        f.write(img_data)
-                print(f"  ✓ '{query}' → {len(data['photos'])} images saved to '{label}/'")
+                    save_path = os.path.join(class_path, filename)
+
+                    # Skip images that were already downloaded
+                    if os.path.exists(save_path):
+                        continue
+
+                    try:
+                        img_response = requests.get(img_url, timeout=20)
+                        img_response.raise_for_status()
+
+                        with open(save_path, "wb") as f:
+                            f.write(img_response.content)
+
+                    except requests.exceptions.RequestException as e:
+                        print(f"Skipped image {i} for query '{query}' because of connection error: {e}")
+                        continue
+                print(f" '{query}' → {len(data['photos'])} images saved to '{label}/'")
             else:
-                print(f"  ✗ Error {response.status_code} for query '{query}'")
+                print(f" Error {response.status_code} for query '{query}'")
 
 
 def download_train_images() -> None:
-    """Download training images into crowd_dataset/."""
-    print(f"\n📥 Downloading TRAINING images → {SAVE_DIR}/\n")
+    # Download training images into crowd_dataset/
+    print(f"\n Downloading TRAINING images → {SAVE_DIR}/\n")
     _download_for_classes(TRAIN_CLASSES, SAVE_DIR)
     _print_summary(SAVE_DIR)
 
 
 def download_test_images(test_dir: str = "test_dataset") -> None:
-    """Download test images into test_dataset/."""
-    print(f"\n📥 Downloading TEST images → {test_dir}/\n")
+    # Download test images into test_dataset/
+    print(f"\n Downloading TEST images → {test_dir}/\n")
     _download_for_classes(TEST_CLASSES, test_dir)
     _print_summary(test_dir)
 
 
 def _print_summary(base_dir: str) -> None:
-    print(f"\n── Summary: {base_dir} ──")
+    print(f"\n Summary: {base_dir}")
     for cls in os.listdir(base_dir):
         cls_path = os.path.join(base_dir, cls)
         if os.path.isdir(cls_path):

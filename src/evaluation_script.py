@@ -1,28 +1,17 @@
-"""
-evaluation_script.py
-====================
-Runs per-image inference on the test set and prints a full table of
-predictions, true labels, confidence scores, and pass/fail status.
-
-A summary of misclassified files is printed at the end as an action list.
-"""
-
 import os
 import torch
 from torchvision import datasets
 
 from train_model import build_model, build_test_loader, DEVICE, TRAIN_DIR, TEST_DIR
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration:
 ORIGINAL_MODEL_PATH = "models/age_classifier.pth"
 FINETUNED_MODEL_PATH = "models/age_classifier_finetuned.pth"
 
-# ──────────────────────────────────────────────────────────────────────────────
-
 
 def analyze_individual_files(model_path) -> None:
-    """Loads the model and prints per-image results with a failure summary."""
-
+    # Loads the model and prints per-image results with a failure summary
+    
     # Establish canonical class mapping from the training directory
     train_dataset = datasets.ImageFolder(TRAIN_DIR)
     class_to_idx  = train_dataset.class_to_idx

@@ -1,16 +1,3 @@
-"""
-train_model.py
-==============
-Transfer-learning trainer for AuraVision (EfficientNet-B0, 3 classes).
-
-Shared constants and helper functions are imported by:
-  - confusion_matrix.py
-  - evaluation_script.py
-  - finetune_model.py
-
-Run standalone to produce models/age_classifier.pth.
-"""
-
 import os
 import copy
 import torch
@@ -22,10 +9,10 @@ from PIL import Image
 import numpy as np
 from collections import Counter
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration:
 TRAIN_DIR   = "dataset/train"   # subfolders: Children/, Adults/, Seniors/
 TEST_DIR    = "dataset/test"    # same subfolder structure as train
-MODEL_SAVE  = "AuraVision/models/age_classifier.pth"
+MODEL_SAVE  = "models/age_classifier.pth"
 
 NUM_EPOCHS    = 40
 BATCH_SIZE    = 8
@@ -36,10 +23,8 @@ DEVICE        = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Set after ImageFolder scans the train directory — do NOT derive from test dir.
 CLASS_NAMES: list[str] = []
-# ──────────────────────────────────────────────────────────────────────────────
 
-
-# ── Data Transforms ────────────────────────────────────────────────────────────
+# Data Transforms:
 train_transforms = transforms.Compose([
     transforms.Resize((IMAGE_SIZE + 32, IMAGE_SIZE + 32)),
     transforms.RandomCrop(IMAGE_SIZE),
@@ -59,15 +44,13 @@ val_transforms = transforms.Compose([
 ])
 
 
-# ── Data Loaders ───────────────────────────────────────────────────────────────
+# Data Loaders
 def build_dataloaders(train_dir: str):
-    """
-    Scans train_dir with ImageFolder to discover classes.
-    The class-to-index mapping produced here is the canonical one
-    used for ALL subsequent operations, including test evaluation.
+    # Scans train_dir with ImageFolder to discover classes.
+    # The class-to-index mapping produced here is the canonical one
+    # used for ALL subsequent operations, including test evaluation.
+    # Returns: train_loader, val_loader, class_to_idx
 
-    Returns: train_loader, val_loader, class_to_idx
-    """
     global CLASS_NAMES
 
     full_dataset = datasets.ImageFolder(train_dir, transform=train_transforms)
@@ -104,12 +87,10 @@ def build_dataloaders(train_dir: str):
 
 
 def build_test_loader(test_dir: str, train_class_to_idx: dict):
-    """
-    Loads the test set using the SAME class-to-index mapping established
-    during training, preventing label mismatches across runs.
+    # Loads the test set using the SAME class-to-index mapping established
+    # during training, preventing label mismatches across runs.
 
-    Returns: test_loader, test_dataset
-    """
+    # Returns: test_loader, test_dataset
     raw_test = datasets.ImageFolder(test_dir, transform=val_transforms)
 
     # Remap test labels to match the training index
@@ -131,12 +112,10 @@ def build_test_loader(test_dir: str, train_class_to_idx: dict):
     return test_loader, raw_test
 
 
-# ── Model ─────────────────────────────────────────────────────────────────────
+# The Model: 
 def build_model() -> nn.Module:
-    """
-    EfficientNet-B0 pretrained on ImageNet.
-    Backbone layers 0-5 frozen; layers 6+ and the custom head are trainable.
-    """
+    # EfficientNet-B0 pretrained on ImageNet.
+    # Backbone layers 0-5 frozen; layers 6+ and the custom head are trainable.
     model = models.efficientnet_b0(weights=models.EfficientNet_B0_Weights.DEFAULT)
 
     # Freeze all layers first
@@ -160,9 +139,9 @@ def build_model() -> nn.Module:
     return model.to(DEVICE)
 
 
-# ── Training Loop ─────────────────────────────────────────────────────────────
+# Training Loop 
 def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoader) -> nn.Module:
-    """Trains for NUM_EPOCHS and saves the best checkpoint by validation accuracy."""
+    # Trains for NUM_EPOCHS and saves the best checkpoint by validation accuracy
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -175,7 +154,7 @@ def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoad
     best_weights = copy.deepcopy(model.state_dict())
 
     for epoch in range(NUM_EPOCHS):
-        # ── Train phase ──────────────────────────────────────────────
+        # Train phase: 
         model.train()
         running_loss = correct = total = 0
         for inputs, labels in train_loader:
@@ -194,7 +173,7 @@ def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoad
         train_loss = running_loss / total
         train_acc  = correct / total
 
-        # ── Validation phase ─────────────────────────────────────────
+        # Validation phase:
         model.eval()
         val_correct = val_total = 0
         with torch.no_grad():
@@ -214,21 +193,20 @@ def train_model(model: nn.Module, train_loader: DataLoader, val_loader: DataLoad
             best_val_acc = val_acc
             best_weights = copy.deepcopy(model.state_dict())
 
-    print(f"\n✅ Best validation accuracy: {best_val_acc:.2%}")
+    print(f"\n Best validation accuracy: {best_val_acc:.2%}")
     os.makedirs("models", exist_ok=True)
     model.load_state_dict(best_weights)
     torch.save(model.state_dict(), MODEL_SAVE)
-    print(f"✅ Model saved → {MODEL_SAVE}")
+    print(f" Model saved → {MODEL_SAVE}")
     return model
 
 
-# ── Inference ─────────────────────────────────────────────────────────────────
+# Inference:
 def run_inference(model: nn.Module, test_loader: DataLoader, test_dataset) -> tuple:
-    """
-    Runs inference on the structured test set.
-    Prints per-image predictions and a per-class accuracy summary.
-    Returns (all_preds, all_labels).
-    """
+    # Runs inference on the structured test set.
+    # Prints per-image predictions and a per-class accuracy summary.
+    # Returns (all_preds, all_labels).
+
     model.eval()
     all_preds = all_labels = []
     all_probs_list = []
@@ -260,9 +238,9 @@ def run_inference(model: nn.Module, test_loader: DataLoader, test_dataset) -> tu
     preds_arr  = np.array(all_preds)
     labels_arr = np.array(all_labels)
     overall    = (preds_arr == labels_arr).mean()
-    print(f"\n📊 Overall test accuracy: {overall:.2%}  ({int((preds_arr == labels_arr).sum())}/{len(labels_arr)})")
+    print(f"\n Overall test accuracy: {overall:.2%}  ({int((preds_arr == labels_arr).sum())}/{len(labels_arr)})")
 
-    print("\n📋 Per-class results:")
+    print("\n Per-class results:")
     for cls_idx, cls_name in enumerate(CLASS_NAMES):
         mask = labels_arr == cls_idx
         if not mask.any():
@@ -272,29 +250,27 @@ def run_inference(model: nn.Module, test_loader: DataLoader, test_dataset) -> tu
 
     return all_preds, all_labels
 
-
-# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    print(f"🖥️  Device: {DEVICE}\n")
+    print(f" Device: {DEVICE}\n")
 
-    print("📂 Loading training data...")
+    print(" Loading training data...")
     train_loader, val_loader, class_to_idx = build_dataloaders(TRAIN_DIR)
 
-    print("\n🏗️  Building model (EfficientNet-B0)...")
+    print("\n Building model (EfficientNet-B0)...")
     model = build_model()
     total     = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"   Total params:     {total:,}")
     print(f"   Trainable params: {trainable:,}")
 
-    print(f"\n🚀 Training for {NUM_EPOCHS} epochs...")
+    print(f"\n Training for {NUM_EPOCHS} epochs...")
     model = train_model(model, train_loader, val_loader)
 
-    print(f"\n📂 Loading test data from '{TEST_DIR}'...")
+    print(f"\n Loading test data from '{TEST_DIR}'...")
     test_loader, test_dataset = build_test_loader(TEST_DIR, class_to_idx)
     print(f"   Test images: {len(test_dataset)}")
 
-    print("\n🔍 Running inference on test set...")
+    print("\n Running inference on test set...")
     run_inference(model, test_loader, test_dataset)
 
 

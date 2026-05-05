@@ -1,13 +1,3 @@
-"""
-confusion_matrix.py
-===================
-Generates a confusion matrix and a detailed classification report
-for a saved model checkpoint.
-
-Uses the canonical class-to-index mapping from the training directory
-to prevent label mismatches.
-"""
-
 import torch
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -16,15 +6,12 @@ from torchvision import datasets
 
 from train_model import build_model, build_test_loader, DEVICE, TRAIN_DIR, TEST_DIR
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration:
 ORIGINAL_MODEL_PATH = "models/age_classifier.pth"
 FINETUNED_MODEL_PATH = "models/age_classifier_finetuned.pth"
 
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 def generate_matrix(model_path: str) -> None:
-    """Loads a checkpoint, runs inference on the test set, and plots the matrix."""
+    # Loads a checkpoint, runs inference on the test set, and plots the matrix
 
     # Use training directory to establish the canonical class mapping
     train_dataset = datasets.ImageFolder(TRAIN_DIR)

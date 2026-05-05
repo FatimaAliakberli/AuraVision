@@ -1,32 +1,19 @@
-"""
-split_data.py
-=============
-Splits the downloaded crowd_dataset/ into train/ and test/ subsets
-using an 80/20 ratio, preserving the class subfolder structure so
-PyTorch's ImageFolder can load it directly.
-
-Run after data_extraction.py.
-"""
-
 import os
 import shutil
 import random
 
-# ── Configuration ──────────────────────────────────────────────────────────────
-SOURCE_DIR   = "extracted_data"    # output of data_extraction.py
-OUTPUT_DIR   = "dataset"   # destination: split_dataset/train/ & /test/
+# Configuration:
+SOURCE_DIR   = "extracted_data"  # output of data_extraction.py
+OUTPUT_DIR   = "dataset"         # destination: split_dataset/train/ & /test/
 SPLIT_RATIO  = 0.8               # 80% train, 20% test
 RANDOM_SEED  = 42
-# ──────────────────────────────────────────────────────────────────────────────
-
 
 def split_dataset(source_dir: str, output_dir: str, split_ratio: float = 0.8) -> None:
-    """
-    Copies images from source_dir/<Class>/ into:
-        output_dir/train/<Class>/
-        output_dir/test/<Class>/
-    using a reproducible random shuffle.
-    """
+    # Copies images from source_dir/<Class>/ into:
+    #    output_dir/train/<Class>/
+    #    output_dir/test/<Class>/
+    # using a reproducible random shuffle.
+    
     random.seed(RANDOM_SEED)
 
     classes = [
@@ -70,7 +57,7 @@ def split_dataset(source_dir: str, output_dir: str, split_ratio: float = 0.8) ->
         total_test  += len(test_images)
 
     print(f"\n  ── Totals ──  train: {total_train}  |  test: {total_test}")
-    print(f"\n✅ Split complete → {output_dir}/")
+    print(f"\n Split complete → {output_dir}/")
 
 
 if __name__ == "__main__":

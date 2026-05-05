@@ -1,18 +1,3 @@
-"""
-finetune_model.py
-=================
-Fine-tunes the pre-trained age_classifier.pth with stronger regularisation
-to reduce overfitting.
-
-Key changes vs. initial training:
-  - Backbone is fully frozen; only the classifier head is retrained.
-  - Heavier dropout (0.5 / 0.4) and stronger weight decay (1e-2).
-  - Cosine annealing with warm restarts to escape local minima.
-  - Test-time augmentation (TTA) for the final accuracy estimate.
-
-Produces: models/age_classifier_finetuned.pth
-"""
-
 import os
 import copy
 import torch
@@ -22,7 +7,7 @@ from torchvision import datasets, transforms, models
 
 from train_model import DEVICE, NUM_CLASSES
 
-# ── Configuration ──────────────────────────────────────────────────────────────
+# Configuration:
 TRAIN_DIR   = "dataset/train"
 TEST_DIR    = "dataset/test"
 MODEL_PATH  = "models/age_classifier.pth"       # starting checkpoint
@@ -31,10 +16,8 @@ SAVE_PATH   = "models/age_classifier_finetuned.pth"
 EPOCHS      = 20
 BATCH_SIZE  = 8
 LR          = 1e-4
-# ──────────────────────────────────────────────────────────────────────────────
 
-
-# ── Transforms ────────────────────────────────────────────────────────────────
+# Transforms:
 # Stronger augmentation to fight memorisation
 train_transform = transforms.Compose([
     transforms.RandomResizedCrop(224, scale=(0.6, 1.0)),
@@ -78,7 +61,7 @@ tta_transforms = [
 ]
 
 
-# ── Data Loaders ──────────────────────────────────────────────────────────────
+# Data Loaders:
 def build_loaders():
     train_dataset = datasets.ImageFolder(TRAIN_DIR, transform=train_transform)
     test_dataset  = datasets.ImageFolder(TEST_DIR,  transform=val_transform)
@@ -99,12 +82,10 @@ def build_loaders():
     return train_loader, test_loader, train_dataset.class_to_idx
 
 
-# ── Model ─────────────────────────────────────────────────────────────────────
+# The Model:
 def build_model() -> nn.Module:
-    """
-    Loads the base checkpoint, upgrades dropout, and freezes the backbone.
-    Only the classifier head will be retrained.
-    """
+    # Loads the base checkpoint, upgrades dropout, and freezes the backbone.
+    # Only the classifier head will be retrained.
     model = models.efficientnet_b0(weights=None)
 
     # Heavier dropout head
@@ -133,7 +114,7 @@ def build_model() -> nn.Module:
     return model.to(DEVICE)
 
 
-# ── Evaluation helpers ────────────────────────────────────────────────────────
+# Evaluation helpers:
 def evaluate(model: nn.Module, loader: DataLoader) -> float:
     model.eval()
     correct = total = 0
@@ -147,7 +128,7 @@ def evaluate(model: nn.Module, loader: DataLoader) -> float:
 
 
 def evaluate_with_tta(model: nn.Module, test_dir: str, class_to_idx: dict) -> float:
-    """Averages logits over 5 TTA transforms for a more robust accuracy estimate."""
+    # Averages logits over 5 TTA transforms for a more robust accuracy estimate
     from PIL import Image
 
     model.eval()
@@ -173,7 +154,7 @@ def evaluate_with_tta(model: nn.Module, test_dir: str, class_to_idx: dict) -> fl
     return correct / total if total > 0 else 0.0
 
 
-# ── Fine-tuning Loop ──────────────────────────────────────────────────────────
+# Fine-tuning Loop:
 def finetune():
     train_loader, test_loader, class_to_idx = build_loaders()
     model = build_model()
@@ -237,10 +218,10 @@ def finetune():
 
     gap = evaluate(model, train_loader) - best_acc
     if gap > 0.20:
-        print("\n⚠  Train/test gap still large — consider collecting more data.")
-        print("   Target: 300+ images per class with diverse contexts.")
+        print("\n  Train/test gap still large — consider collecting more data.")
+        print(" Target: 300+ images per class with diverse contexts.")
     else:
-        print("\n✓  Overfitting gap reduced. Model is generalising better.")
+        print("\n Overfitting gap reduced. Model is generalising better.")
 
 
 if __name__ == "__main__":
