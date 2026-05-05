@@ -226,9 +226,21 @@ Misclassified files are listed at the end as an action list for further data col
  
 ## Limitations & Future Work
  
-- Larger backbones such as EfficientNet-B3 or ResNet-50 could be explored as data grows
-- Sliding-window or patch-based inference at higher resolution for dense crowd scenes
-- Deployment as a real-time inference API for integration into venue management systems
+**Dataset size and diversity**
+Despite significant expansion from Milestone 1, the dataset still relies entirely on stock photography from Pexels, which introduces a subtle but important bias: stock images tend to be well-lit, clearly composed, and subject-centred — very different from the low-resolution, occluded, and motion-blurred frames that appear in real-world surveillance or event footage. Future work should incorporate images from more diverse sources and shooting conditions to bridge this gap. A target of 500+ images per class with varied lighting, camera angles, and crowd densities is recommended before considering a production deployment.
+ 
+**Adults/Seniors boundary**
+The most persistent source of misclassification in this project is the overlap between Adults and Seniors. This is an inherently difficult boundary because visual cues such as clothing style, posture, and accessories are heavily context-dependent — a formally dressed older adult and a formally dressed middle-aged adult may be visually indistinguishable at crowd scale. Addressing this may require going beyond RGB features: incorporating additional signals such as gait patterns, hair colour distributions, or skin texture analysis could help the model draw a more reliable boundary between these two classes.
+ 
+**Model architecture**
+EfficientNet-B0 was chosen for its efficiency given the small dataset, but its representational capacity is limited. As the dataset grows, experimenting with larger backbones such as EfficientNet-B3 or ResNet-50 is a natural next step. B3 in particular offers a meaningful capacity increase while remaining computationally practical, and its wider feature maps could capture subtler crowd-level age cues that B0 currently misses. Any switch to a larger backbone should be accompanied by a corresponding increase in dataset size to avoid reintroducing the overfitting problem observed in Milestone 1.
+ 
+**Inference resolution and crowd density**
+The current model classifies entire images as a single unit, which works reasonably well for controlled stock photos but would break down in dense crowd scenes where multiple age groups are present simultaneously. A sliding-window or patch-based inference approach — dividing each frame into overlapping regions and aggregating predictions spatially — would give the model a better chance of resolving fine-grained age group distributions within a single scene. This is particularly relevant for the intended deployment context (public spaces, retail, events) where mixed-age crowds are the norm rather than the exception.
+ 
+**Deployment readiness**
+The project currently exists as a set of offline scripts and notebooks. For real-world deployment in venue management or retail analytics settings, the model would need to be wrapped in a lightweight inference API (e.g. FastAPI) capable of processing live video frames or image uploads in near real-time. This would also require work on model quantisation or ONNX export to reduce latency on edge hardware, as well as a monitoring layer to detect distribution shift when the deployed environment differs significantly from the Pexels training distribution.
+
 ---
  
 ## Acknowledgements
