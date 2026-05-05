@@ -195,12 +195,10 @@ Fine-tuning produces `models/age_classifier_finetuned.pth`, which is the recomme
  
 ---
  
-
----
  
 ## Evaluation
  
-Milestone 2 introduces proper quantitative evaluation with a fully labelled test set.
+Milestone 2 introduces proper quantitative evaluation with a fully labelled test set of **256 images** across three classes (104 Adults, 80 Children, 72 Seniors). Both the base model and the fine-tuned model are evaluated side-by-side.
  
 ### Per-Image Results
  
@@ -218,9 +216,44 @@ TOTAL WRONG: X / N
  
 Misclassified files are listed at the end as an action list for further data collection or inspection.
  
-### Confusion Matrix
+### Confusion Matrix & Quantitative Results
  
-`confusion_matrix.py` generates a heatmap showing how predictions are distributed across the three classes, and prints a full `sklearn` classification report with per-class precision, recall, and F1-score.
+`confusion_matrix.py` generates a heatmap showing how predictions are distributed across the three classes, and prints a full `sklearn` classification report with per-class precision, recall, and F1-score. Both models were evaluated on the same 256-image test set.
+ 
+#### Original Model — 216 / 256 correct (84.4% overall accuracy)
+ 
+| True \ Predicted | Adults | Children | Seniors |
+|---|---|---|---|
+| **Adults** (104) | **94** ✓ | 5 | 5 |
+| **Children** (80) | 9 | **68** ✓ | 3 |
+| **Seniors** (72) | 12 | 6 | **54** ✓ |
+ 
+- Adults were the strongest class — 94/104 correctly identified (90.4%), with errors split evenly between Children and Seniors
+- Children achieved 68/80 (85.0%), with the majority of errors being confused with Adults (9 images), likely due to school-context scenes with adult figures present
+- Seniors were the weakest class — 54/72 (75.0%), with 12 images misclassified as Adults, consistent with the Adults/Seniors visual similarity problem identified in Milestone 1
+
+
+<img width="913" height="790" alt="Original_model reuslts" src="https://github.com/user-attachments/assets/a1fdd66c-3ef7-4619-be72-1de80ec3cd6a" />
+
+
+#### Fine-Tuned Model — 220 / 256 correct (85.9% overall accuracy)
+ 
+| True \ Predicted | Adults | Children | Seniors |
+|---|---|---|---|
+| **Adults** (104) | **94** ✓ | 7 | 3 |
+| **Children** (80) | 5 | **74** ✓ | 1 |
+| **Seniors** (72) | 12 | 8 | **52** ✓ |
+ 
+- Adults held steady at 94/104 (90.4%), but errors shifted slightly — fewer misclassified as Seniors (5 → 3), at the cost of a small increase toward Children (5 → 7)
+- Children improved meaningfully from 68 to 74/80 (85.0% → 92.5%), the clearest gain from fine-tuning — the stronger regularisation and heavier augmentation helped the model generalise better to child-context images
+- Seniors dropped marginally from 54 to 52/72 (75.0% → 72.2%), with a slight shift of errors from Adults toward Children — this is the one area where fine-tuning did not improve performance, suggesting the Seniors class would benefit most from additional and more diverse training data
+#### Key Takeaways
+ 
+Fine-tuning improved overall accuracy from **84.4% → 85.9%** (+1.5 percentage points) and produced a meaningful gain on the Children class (+7.5pp), which was the primary target of the stronger regularisation. The Adults/Seniors boundary remains the hardest challenge: across both models, Seniors consistently produce the most misclassifications, and almost all of them leak into the Adults column rather than Children — confirming that the visual overlap between these two classes is the main bottleneck for further accuracy improvements.
+
+<img width="913" height="790" alt="Finetuned model results" src="https://github.com/user-attachments/assets/e50c94fd-6a1d-4e36-b239-3b18466f0b69" />
+
+
  
 ---
  
